@@ -90,8 +90,8 @@ func (msg RedisMessage) Integer() (int64, error) {
 }
 
 type RedisReader struct {
-	rd  *textproto.Reader
-	out chan RedisMessage
+	Rd  *textproto.Reader
+	Out chan RedisMessage
 }
 
 // Reset the parsing state of the reader
@@ -101,81 +101,94 @@ func (rr *RedisReader) Reset() {
 
 func NewRespReader(tp *textproto.Reader, out chan RedisMessage) RedisReader {
 	return RedisReader{
-		rd:  tp,
-		out: out,
+		Rd:  tp,
+		Out: out,
 	}
 }
 
 func (rr *RedisReader) Scan() {
-	str, e := rr.rd.ReadLine()
-	if e != nil {
-		log.Fatal().Msg(fmt.Sprintf("Fatal: %+v", e))
-		rr.Reset()
-		return
-	}
-	switch RespT(str[0]) {
+	byteCode := rr.TryReadByte()
+	switch RespT(byteCode) {
 	case BulkString:
-		rr.out <- respBulkStr(str, rr)
+		rr.Out <- RespBulkStr(rr)
 	case SimpleString:
-		rr.out <- respSimpleStr(str)
+		rr.Out <- RespSimpleStr(rr)
 	case Integer:
-		rr.out <- respInt(str)
+		rr.Out <- RespInt(rr)
 	case Error:
-		rr.out <- respError(str)
+		rr.Out <- RespError(rr)
+	case Arrays:
+		// rr.Out <- RespSimpleStr2()
 	default:
-		rr.out <- respSimpleStr(str)
+		rr.Out <- RespSimpleStr(rr)
+
 	}
 }
 
-func respSimpleStr(str string) RedisMessage {
+func RespSimpleStr(rr *RedisReader) RedisMessage {
+	s, e := rr.Rd.ReadLine()
+	if e != nil {
+		log.Fatal().Msg(fmt.Sprintf("Fatal RespSimpleStr: %+v", e))
+	}
 	return RedisMessage{
-		RedisType: RespT(str[0]),
-		Raw:       str,
-		Choice:    MsgSimpleStr(str[1:]),
+		RedisType: RespT(SimpleString),
+		Raw:       s,
+		Choice:    MsgSimpleStr(s),
 	}
 }
 
-func respError(str string) RedisMessage {
+func RespError(rr *RedisReader) RedisMessage {
+	s, e := rr.Rd.ReadLine()
+	if e != nil {
+		log.Fatal().Msg(fmt.Sprintf("Fatal RespError: %+v", e))
+	}
 	return RedisMessage{
-		RedisType: RespT(str[0]),
-		Raw:       str,
-		Choice:    MsgError(str[1:]),
+		RedisType: RespT(Error),
+		Raw:       s,
+		Choice:    MsgError(s),
 	}
 }
 
-func respBulkStr(str string, rr *RedisReader) RedisMessage {
-	l, e := strconv.ParseInt(str[1:], 10, 64)
+func RespBulkStr(rr *RedisReader) RedisMessage {
+	len := 0
+	for b := rr.TryReadByte(); b != '\r'; b = rr.TryReadByte() {
+		len = (len * 10) + int(b-byte('0'))
+	}
+	bulkStr := make([]byte, len)
+	io.ReadFull(rr.Rd.R, bulkStr)
+	_, e := rr.Rd.R.Discard(2)
 	if e != nil {
 		log.Fatal().Msg(fmt.Sprintf("Fatal: %+v", e))
 	}
-	if l == -1 {
-		return RedisMessage{
-			RedisType: RespT(str[0]),
-			Raw:       str,
-			Choice:    MsgBulkStr("<nil>"),
-		}
-	}
-	bulkStr := make([]byte, l)
-	io.ReadFull(rr.rd.R, bulkStr)
-	_, e = rr.rd.R.Discard(2)
-	if e != nil {
-		log.Fatal().Msg(fmt.Sprintf("Fatal: %+v", e))
-	}
 	return RedisMessage{
-		RedisType: RespT(str[0]),
-		Raw:       str + "\n" + string(bulkStr),
+		RedisType: BulkString,
+		Raw:       string(bulkStr),
 		Choice:    MsgBulkStr(string(bulkStr)),
 	}
 }
 
-func respInt(str string) RedisMessage {
-	i, e := strconv.ParseInt(str[1:], 10, 64)
+func RespInt(rr *RedisReader) RedisMessage {
+	s, e := rr.Rd.ReadLine()
 	if e != nil {
-		log.Fatal().Msg(fmt.Sprintf("Fatal: %+v", e))
+		log.Fatal().Msg(fmt.Sprintf("Fatal RespInt: %+v", e))
 	}
+
+	i, e := strconv.ParseInt(s, 10, 64)
+	if e != nil {
+		log.Fatal().Msg(fmt.Sprintf("Fatal RespInt: %+v", e))
+	}
+
 	return RedisMessage{
-		RedisType: RespT(str[0]),
-		Raw:       str,
+		RedisType: Integer,
+		Raw:       fmt.Sprintf("%d", i),
 		Choice:    MsgInteger(i),
 	}
+}
+
+func (rr *RedisReader) TryReadByte() byte {
+	b, e := rr.Rd.R.ReadByte()
+	if e != nil {
+		log.Fatal().Msg(fmt.Sprintf("Fatal TryReadByte: %+v", e))
+	}
+	return b
 }
