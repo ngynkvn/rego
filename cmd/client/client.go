@@ -22,6 +22,11 @@ func loopScan(reader *textproto.Reader, msg_ch chan resp.RedisMessage) {
 	}
 }
 
+// repl starts an read input loop on the standard input.
+//
+// Commands are sent out after a new line is parsed.
+//
+// TODO: Improve ergonomics of the repl.
 func repl(input *textproto.Reader, wr *textproto.Writer) {
 	for {
 		print("> ")
