@@ -152,6 +152,7 @@ func RespSimpleStr(rr *RedisReader) RedisMessage {
 	if e != nil {
 		log.Fatal().Msg(fmt.Sprintf("Fatal RespSimpleStr: %+v", e))
 	}
+
 	return RedisMessage{
 		RedisType: RespT(SimpleString),
 		Raw:       s,
@@ -164,6 +165,7 @@ func RespError(rr *RedisReader) RedisMessage {
 	if e != nil {
 		log.Fatal().Msg(fmt.Sprintf("Fatal RespError: %+v", e))
 	}
+
 	return RedisMessage{
 		RedisType: RespT(Error),
 		Raw:       s,
@@ -178,14 +180,17 @@ func RespError(rr *RedisReader) RedisMessage {
 // buffer
 func RespBulkStr(rr *RedisReader) RedisMessage {
 	len := loopReadInt(rr)
+
+	// Read the string data into buffer
 	bulkStr := make([]byte, len)
 	io.ReadFull(rr.Rd.R, bulkStr)
 
-	// Discard \r\n
+	// Discard two bytes since we don't need the '\r\n'
 	_, e := rr.Rd.R.Discard(2)
 	if e != nil {
 		log.Fatal().Msg(fmt.Sprintf("Fatal: %+v", e))
 	}
+
 	return RedisMessage{
 		RedisType: BulkString,
 		Raw:       string(bulkStr),

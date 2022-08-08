@@ -4,11 +4,15 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"net/textproto"
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/ngynkvn/rego/pkg/net"
 	"github.com/ngynkvn/rego/pkg/resp"
@@ -56,14 +60,48 @@ func createBulkStrings(commands []string) []string {
 	return cmds
 }
 
+type Args struct {
+	conn_str string
+	log      bool
+}
+
+func getArgs() Args {
+	log_flag := flag.Bool("log", false, "Write to a log file")
+	flag.Parse()
+	args := Args{
+		conn_str: "127.0.0.1:6379",
+		log:      false,
+	}
+	if conn := flag.Arg(0); conn != "" {
+		args.conn_str = conn
+	}
+	if *log_flag {
+		args.log = true
+	}
+
+	return args
+}
+
 // cmd/client starts a simple Read-Send-Print-Loop (RSPL?)
 // with a redis server.
 //
 // TODO: Implement command flags
 func main() {
+	args := getArgs()
+
+	writer := os.Stderr
+	if args.log {
+		file, err := os.OpenFile("client.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatal().Msgf("Open log error: %v", err)
+		}
+		writer = file
+	}
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: writer})
+
 	// Create the connection to the redis server
 	// TODO: cli, rm hardcode
-	conn := net.NewConn("127.0.0.1:6379")
+	conn := net.NewConn(args.conn_str)
 	defer conn.Close()
 
 	// Create the readers and writers we will pass to our subroutines
@@ -86,7 +124,7 @@ func main() {
 		func() {
 			for {
 				msg := <-msg_channel
-				write_tty.PrintfLine("[%c] %s", msg.RedisType, msg.Choice.String())
+				write_tty.PrintfLine("\n[%c] %s", msg.RedisType, msg.Choice.String())
 			}
 		},
 	).Wait()
@@ -95,7 +133,7 @@ func main() {
 
 // runAsWaitGroup runs closures within a sync.WaitGroup
 //
-// This function blocks until all closures finish running.
+// Calling .Wait() on the resultant WaitGroup is a blocking operation until all closures finish running.
 func runAsWaitGroup(closures ...func()) *sync.WaitGroup {
 	wg := sync.WaitGroup{}
 	for _, fn := range closures {
