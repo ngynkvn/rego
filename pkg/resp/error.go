@@ -6,7 +6,7 @@ import (
 )
 
 type ParseError struct {
-	expected RespT
+	expected []RespT
 	got      RespT
 	e        error
 }
@@ -21,7 +21,7 @@ func (e *ParseError) Unwrap() error {
 
 var ErrParsing = errors.New("ParseError")
 
-func NewParseError(expected, got RespT) *ParseError {
+func NewParseError(got RespT, expected ...RespT) *ParseError {
 	return &ParseError{
 		expected: expected,
 		got:      got,
